@@ -1,0 +1,86 @@
+#!/bin/bash
+
+echo -n "Laboratório: "
+read LAB
+echo -n "PC: "
+read PC
+
+declare -A INI_ID_HOST=([1]=0 [2]=64 [3]=128 [4]=192)
+
+echo "Seleção de turma:"
+PS3="Escolha sua opção: "
+select turma in Redes1 Redes2 Redes3 Redes4; do
+case $REPLY in
+
+	[1-4])  PERIODO=$REPLY
+                let HOST_ID=${INI_ID_HOST[${PERIODO}]}+${PC}
+                let HOST_ID_EPOPTES_SRV=${INI_ID_HOST[${PERIODO}]}+1
+		break;;
+
+	*) echo "Turma inválida! Tente novamente." ;;
+esac
+done
+
+
+
+cat << EOF > /etc/network/interfaces
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# Nat
+allow-hotplug enp0s3
+iface enp0s3 inet dhcp
+
+# Intnet
+allow-hotplug enp0s8
+iface enp0s8 inet static
+  address 192.168.${PC}.254
+  netmask 255.255.255.0
+
+# Host-only
+allow-hotplug enp0s9
+iface enp0s9 inet dhcp
+
+# Bridge
+allow-hotplug enp0s10
+iface enp0s10 inet static
+  address 172.27.${LAB}.${HOST_ID}
+  netmask 255.255.255.0
+
+EOF
+
+for iface in enp0s{8,9,10}
+do
+	echo
+	ifdown "${iface}"
+	ifup "${iface}"
+done
+
+# Atualiza servidor Epoptes a apontar
+EPOPTES_SRV_IP=172.27.${LAB}.${HOST_ID_EPOPTES_SRV}
+EPOPTES_SRV_NAME=pc-1-${turma}
+
+cat << EOF > /etc/default/epoptes-client
+SERVER=${EPOPTES_SRV_NAME}
+PORT=789
+EOF
+
+
+# Configura o nome do computador
+cat << EOF > /etc/hosts
+127.0.0.1	localhost
+127.0.1.1	pc-${PC}-${turma}
+${EPOPTES_SRV_IP}	${EPOPTES_SRV_NAME}
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+
+EOF
+
+hostnamectl set-hostname pc-${PC}-${turma}
+echo "Pressione <ENTER> para reiniciar a máquina."
+read
+systemctl reboot
